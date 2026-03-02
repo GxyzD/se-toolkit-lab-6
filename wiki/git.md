@@ -186,7 +186,7 @@ Example: [`.gitignore`](../.gitignore)
 
 Common ignored files:
 
-- Secrets (`.env.secret`, keys, tokens).
+- Secrets (`.env` files, keys, tokens).
 - Build artifacts (`dist/`, `build/`).
 - Local caches and temporary files.
 

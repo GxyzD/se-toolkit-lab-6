@@ -186,6 +186,5 @@ poe dev            # check + run server
 > Secrets never enter version control.
 
 - Store secrets in `.env` files. These files are git-ignored.
-- Reference `.env.example` / `.env.docker.example` for the expected
-  variable names.
+- Reference `.env.docker.example` for the expected variable names.
 - Never hard-code API tokens or database passwords in source code.
