@@ -110,6 +110,11 @@ The file must be non-empty.
    qwen
    ```
 
+2. If you want to exit the chat:
+
+   1. Write `/quit` in the chat.
+   2. Press `Enter`.
+
 ### Open a chat with `Qwen Code` using the `Qwen Code Companion` extension for `VS Code`
 
 Method 1:
