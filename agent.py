@@ -284,3 +284,22 @@ def agentic_loop(question, max_turns=10):
         "source": "",
         "tool_calls": tool_calls_log
     }
+
+def main():
+    """Main CLI entry point."""
+    if len(sys.argv) != 2:
+        print("Usage: uv run agent.py <question>", file=sys.stderr)
+        print("Example: uv run agent.py 'How do I resolve a merge conflict?'", file=sys.stderr)
+        sys.exit(1)
+    
+    question = sys.argv[1]
+    
+    # Load environment variables
+    load_dotenv('.env.agent.secret')
+    
+    # Run agentic loop
+    result = agentic_loop(question)
+    
+    # Output only JSON to stdout
+    print(json.dumps(result, ensure_ascii=False))
+    sys.stdout.flush()  # Force flush for Windows
