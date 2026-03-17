@@ -41,97 +41,84 @@ TOOLS = [
     }
 ]
 
-def read_file(path: str) -> str:
-    """Read file safely (no directory traversal)"""
-    # Нормализуем путь и проверяем, что он внутри проекта
+def safe_path(path):
+    """
+    Check if path is safe (no directory traversal, inside project)
+    Returns: (full_path, error_message)
+    """
     project_root = Path.cwd()
-    full_path = (project_root / path).resolve()
     
-    # Проверка безопасности
+    # Clean the path
+    path = path.strip().replace('\\', '/')
+    
+    # Block directory traversal
+    if '..' in path.split('/'):
+        return None, "Access denied: directory traversal (..) is not allowed"
+    
+    # Get full path
+    try:
+        full_path = (project_root / path).resolve()
+    except Exception as e:
+        return None, f"Error resolving path: {str(e)}"
+    
+    # Check if inside project
     if not str(full_path).startswith(str(project_root)):
-        return "Error: Access denied - path outside project directory"
+        return None, f"Access denied: path is outside project directory"
+    
+    return full_path, None
+
+def read_file(path):
+    """Read file contents safely"""
+    full_path, error = safe_path(path)
+    if error:
+        return error
     
     try:
+        if not full_path.exists():
+            return f"Error: File not found: {path}"
+        
+        if not full_path.is_file():
+            return f"Error: Not a file: {path}"
+        
         with open(full_path, 'r', encoding='utf-8') as f:
             return f.read()
-    except FileNotFoundError:
-        return f"Error: File not found: {path}"
+    except PermissionError:
+        return f"Error: Permission denied reading {path}"
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
-def list_files(path: str) -> str:
-    """List files safely"""
-    project_root = Path.cwd()
-    full_path = (project_root / path).resolve()
-    
-    if not str(full_path).startswith(str(project_root)):
-        return "Error: Access denied - path outside project directory"
-    
-    if not full_path.exists():
-        return f"Error: Path not found: {path}"
-    
-    if not full_path.is_dir():
-        return f"Error: Not a directory: {path}"
+def list_files(path):
+    """List directory contents safely"""
+    full_path, error = safe_path(path)
+    if error:
+        return error
     
     try:
+        if not full_path.exists():
+            return f"Error: Path not found: {path}"
+        
+        if not full_path.is_dir():
+            return f"Error: Not a directory: {path}"
+        
         entries = list(full_path.iterdir())
-        # Сортируем: сначала папки, потом файлы
+        # Sort: directories first (with /), then files
         dirs = [e.name + "/" for e in entries if e.is_dir()]
         files = [e.name for e in entries if e.is_file()]
+        
         return "\n".join(sorted(dirs) + sorted(files))
+    except PermissionError:
+        return f"Error: Permission denied listing {path}"
     except Exception as e:
         return f"Error listing directory: {str(e)}"
 
-def agentic_loop(messages, max_turns=10):
-    """Main agent loop"""
-    tool_calls_log = []
+def execute_tool(tool_call):
+    """Execute a tool call and return result"""
+    tool_name = tool_call["function"]["name"]
+    arguments = json.loads(tool_call["function"]["arguments"])
     
-    for turn in range(max_turns):
-        # Вызов LLM с текущими сообщениями и определениями инструментов
-        response = call_llm_with_tools(messages, TOOLS)
-        
-        # Проверяем, есть ли вызовы инструментов
-        if 'tool_calls' in response and response['tool_calls']:
-            # Выполняем каждый вызов
-            for tool_call in response['tool_calls']:
-                tool_name = tool_call['function']['name']
-                tool_args = json.loads(tool_call['function']['arguments'])
-                
-                # Выполняем инструмент
-                if tool_name == 'read_file':
-                    result = read_file(tool_args['path'])
-                elif tool_name == 'list_files':
-                    result = list_files(tool_args['path'])
-                else:
-                    result = f"Error: Unknown tool {tool_name}"
-                
-                # Логируем вызов
-                tool_calls_log.append({
-                    'tool': tool_name,
-                    'args': tool_args,
-                    'result': result
-                })
-                
-                # Добавляем результат в сообщения
-                messages.append({
-                    'role': 'tool',
-                    'tool_call_id': tool_call['id'],
-                    'content': result
-                })
-        else:
-            # Нет вызовов инструментов — это финальный ответ
-            answer = response['choices'][0]['message']['content']
-            source = extract_source_from_conversation(messages, tool_calls_log)
-            
-            return {
-                'answer': answer,
-                'source': source,
-                'tool_calls': tool_calls_log
-            }
-    
-    # Если превысили лимит вызовов
-    return {
-        'answer': 'Reached maximum tool calls without final answer',
-        'source': '',
-        'tool_calls': tool_calls_log
-    }
+    if tool_name == "read_file":
+        return read_file(arguments["path"])
+    elif tool_name == "list_files":
+        return list_files(arguments["path"])
+    else:
+        return f"Error: Unknown tool {tool_name}"
