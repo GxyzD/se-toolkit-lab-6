@@ -148,3 +148,68 @@ RULES:
 FORMAT FOR SOURCE:
 Include the source as: wiki/filename.md#section
 Example: wiki/git-workflow.md#resolving-merge-conflicts"""
+
+def call_llm_with_tools(messages, tools=None):
+    """Call LLM with optional tool definitions"""
+    api_key = os.getenv('LLM_API_KEY')
+    api_base = os.getenv('LLM_API_BASE')
+    model = os.getenv('LLM_MODEL')
+    
+    if not all([api_key, api_base, model]):
+        print("ERROR: Missing environment variables", file=sys.stderr)
+        return None
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7
+    }
+    
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    
+    try:
+        response = requests.post(
+            f"{api_base}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error calling LLM: {e}", file=sys.stderr)
+        return None
+
+def has_tool_calls(response):
+    """Check if response contains tool calls"""
+    if not response or "choices" not in response:
+        return False
+    message = response["choices"][0].get("message", {})
+    return "tool_calls" in message and message["tool_calls"]
+
+def extract_source(messages, tool_calls_log):
+    """Extract source reference from conversation"""
+    # Look in final assistant message
+    for msg in reversed(messages):
+        if msg["role"] == "assistant":
+            content = msg.get("content", "")
+            # Look for wiki/file.md pattern
+            import re
+            match = re.search(r'(wiki/[\w\-\./]+\.md(?:#[^\s]+)?)', content)
+            if match:
+                return match.group(1)
+            break
+    
+    # If not found, check read_file calls
+    for call in reversed(tool_calls_log):
+        if call["tool"] == "read_file" and "wiki/" in call["args"]["path"]:
+            return call["args"]["path"]
+    
+    return ""
