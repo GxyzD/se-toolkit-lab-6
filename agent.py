@@ -213,3 +213,74 @@ def extract_source(messages, tool_calls_log):
             return call["args"]["path"]
     
     return ""
+
+def agentic_loop(question, max_turns=10):
+    """Main agent loop with tool execution"""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question}
+    ]
+    tool_calls_log = []
+    
+    print(f"\nStarting agentic loop for: {question}", file=sys.stderr)
+    
+    for turn in range(max_turns):
+        print(f"Turn {turn + 1}/{max_turns}", file=sys.stderr)
+        
+        response = call_llm_with_tools(messages, TOOLS)
+        if not response:
+            return {
+                "answer": "Error: Failed to get response from LLM",
+                "source": "",
+                "tool_calls": tool_calls_log
+            }
+        
+        message = response["choices"][0]["message"]
+        
+        if has_tool_calls(response):
+            # Add assistant message to conversation
+            messages.append({
+                "role": "assistant", 
+                "content": message.get("content", ""),
+                "tool_calls": message["tool_calls"]
+            })
+            
+            # Execute each tool call
+            for tool_call in message["tool_calls"]:
+                tool_name = tool_call["function"]["name"]
+                print(f"  Executing: {tool_name}", file=sys.stderr)
+                
+                result = execute_tool(tool_call)
+                
+                # Log the call
+                tool_calls_log.append({
+                    "tool": tool_name,
+                    "args": json.loads(tool_call["function"]["arguments"]),
+                    "result": result
+                })
+                
+                # Add result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": result
+                })
+        else:
+            # No tool calls - final answer
+            answer = message.get("content", "")
+            source = extract_source(messages, tool_calls_log)
+            
+            print(f"Final answer received, source: {source}", file=sys.stderr)
+            
+            return {
+                "answer": answer,
+                "source": source,
+                "tool_calls": tool_calls_log
+            }
+    
+    # Max turns reached
+    return {
+        "answer": f"Reached maximum of {max_turns} turns",
+        "source": "",
+        "tool_calls": tool_calls_log
+    }
