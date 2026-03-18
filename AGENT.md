@@ -1,41 +1,23 @@
-# Agent Documentation for Task 2
+## Task 3: System Agent Features
 
-## Overview
-This agent answers questions by reading documentation from the `wiki/` folder.
-It uses tools and an agentic loop to find information.
+### New Tool: query_api
+The agent can now query the live backend API to get real data and diagnose issues.
 
-## Version
-- Version 2.0 (Task 2) - Added tools and agentic loop
-- Version 1.0 (Task 1) - Basic LLM calls
+**Parameters:**
+- `method`: HTTP method (GET, POST, etc.)
+- `path`: API endpoint path
+- `body`: Optional JSON body for POST/PUT
 
-## Tools
+**Authentication:**
+- Uses `LMS_API_KEY` from `.env.docker.secret`
+- Base URL from `AGENT_API_BASE_URL` (default: http://localhost:42002)
 
-### read_file(path)
-Reads a file from the project.
-- **path**: relative path from project root
-- **Returns**: file contents or error message
+### Decision Making
+The system prompt has been enhanced to help the LLM choose the right tool:
+- Wiki questions → `list_files` + `read_file` on `wiki/`
+- Code questions → `read_file` on `.py` files
+- Data/API questions → `query_api`
+- Bug diagnosis → `query_api` first, then `read_file`
 
-### list_files(path)
-Lists files in a directory.
-- **path**: relative directory path
-- **Returns**: newline-separated list (directories end with /)
-
-## Agentic Loop
-1. Send question + tool definitions to LLM
-2. If LLM calls tools → execute them, add results, repeat
-3. If LLM gives text answer → that's final
-4. Maximum 10 iterations
-
-## Output Format
-```json
-{
-  "answer": "The answer text",
-  "source": "wiki/filename.md#section",
-  "tool_calls": [
-    {
-      "tool": "read_file",
-      "args": {"path": "wiki/file.md"},
-      "result": "file contents..."
-    }
-  ]
-}
+### Benchmark Results
+After implementing `query_api` and iterating through the local benchmark:
