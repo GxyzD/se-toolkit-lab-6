@@ -1,6 +1,10 @@
 import os
+import sys
 import json
+import requests
+import re
 from pathlib import Path
+from dotenv import load_dotenv
 
 
 # Tool definitions for function calling
@@ -303,3 +307,6 @@ def main():
     # Output only JSON to stdout
     print(json.dumps(result, ensure_ascii=False))
     sys.stdout.flush()  # Force flush for Windows
+
+if __name__ == "__main__":
+    main()
