@@ -21,14 +21,11 @@ def run_agent(question):
 def test_agent_reads_wiki_file():
     """Test that agent can read a wiki file for merge conflict question"""
     print("\n--- Running test: agent reads wiki file ---", file=sys.stderr)
-    
+
     result = run_agent("How do you resolve a merge conflict?")
-    
+
     assert result is not None, "Failed to run agent"
-    
-    # ВЫВОДИМ ДИАГНОСТИКУ
-    print(f"Return code: {result.returncode}", file=sys.stderr)
-    
+
     # Проверяем, что есть вывод
     assert result.stdout, "STDOUT is empty"
     
