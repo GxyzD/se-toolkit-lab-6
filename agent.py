@@ -124,12 +124,31 @@ DECISION GUIDELINES:
   - Example: "What status code without auth?" → query_api("GET", "/items/", auth=false)
 - For bug diagnosis: first query_api to see the error, then read_file to find the bug in code
 
+BUG DETECTION CHECKLIST (when asked about bugs or risky code):
+When analyzing code for potential bugs, actively look for:
+1. Division operations (e.g., `a / b`) - check if divisor could be zero, causing ZeroDivisionError
+2. None-unsafe operations - sorting, comparisons, or arithmetic on values that could be None
+3. Missing error handling - operations that could fail without try/except
+4. SQL queries without NULL checks - look for `.score`, `.avg()`, etc. without `.is_not(None)`
+5. Sorting with None values - `sorted(rows, key=lambda r: r.field)` fails if field is None
+Example: In analytics code, check for division by zero in rate calculations and None-unsafe sorting
+
+ERROR HANDLING COMPARISON (when asked to compare modules):
+When comparing error handling between modules (e.g., ETL vs API routers):
+1. Read both files completely before answering
+2. Look for: try/except blocks, HTTPException usage, raise_for_status(), error return values
+3. Compare: Does one use HTTP status codes while the other returns error dicts?
+4. Note: ETL typically uses exceptions that propagate; API routers use HTTPException with status codes
+5. Identify which module has more defensive programming patterns
+
 EXAMPLES:
 - "How many items are in the database?" → query_api("GET", "/items/")
 - "What status code without auth?" → query_api("GET", "/items/")
 - "What web framework does the backend use?" → list_files("backend/app/"), then read_file("backend/app/main.py")
 - "List all API router modules" → Step 1: list_files("backend/app/routers/"), Step 2: read ALL 5 router files, Step 3: answer
 - "Why does completion-rate fail for lab-99?" → query_api("GET", "/analytics/completion-rate?lab=lab-99") then read_file
+- "What bugs are in analytics.py?" → read_file("backend/app/routers/analytics.py"), then check for division by zero and None-unsafe operations
+- "Compare ETL and API error handling" → read_file("backend/app/etl.py") AND read_file("backend/app/routers/items.py"), then compare patterns
 
 RULES:
 - Always include the source when answering from wiki or code (source field)
@@ -138,6 +157,8 @@ RULES:
 - Each tool call must have valid arguments
 - CRITICAL: When asked to list routers/modules, you MUST read ALL 5 files before answering
 - IMPORTANT: If you have not read all router files yet, make a tool call to read the next file - DO NOT provide an answer
+- CRITICAL: When asked about bugs, ALWAYS read the file first, then systematically check for division operations and None-unsafe calls
+- CRITICAL: When asked to compare modules, read ALL relevant files BEFORE providing the final answer
 - Only provide a final answer when you have ALL the information needed
 
 FORMAT FOR SOURCE:
