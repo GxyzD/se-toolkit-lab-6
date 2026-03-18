@@ -297,14 +297,16 @@ def main():
         sys.exit(1)
     
     question = sys.argv[1]
-    
+
     # Load environment variables
     load_dotenv('.env.agent.secret')
-    
+
     # Run agentic loop
     result = agentic_loop(question)
-    
+
     # Output only JSON to stdout
+    # Use UTF-8 encoding to support Unicode characters on Windows
+    sys.stdout.reconfigure(encoding='utf-8')
     print(json.dumps(result, ensure_ascii=False))
     sys.stdout.flush()  # Force flush for Windows
 
