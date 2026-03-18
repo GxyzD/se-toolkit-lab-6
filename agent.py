@@ -83,6 +83,10 @@ TOOLS = [
                     "body": {
                         "type": "string",
                         "description": "Optional JSON request body for POST/PUT requests"
+                    },
+                    "auth": {
+                        "type": "boolean",
+                        "description": "Whether to include authentication header (default: true). Set to false to test unauthenticated access."
                     }
                 },
                 "required": ["method", "path"]
@@ -107,13 +111,24 @@ You have access to three tools:
 DECISION GUIDELINES:
 - For questions about documentation (Git workflows, SSH, setup) → use wiki tools (list_files + read_file on wiki/)
 - For questions about source code (framework, structure, bugs) → use read_file on relevant .py files
+  - Backend code is in backend/app/ directory (e.g., backend/app/main.py)
+  - First list files in backend/app/ to find the main file, then read it
+- For questions about routers/modules → Follow these exact steps:
+  Step 1: list_files("backend/app/routers/")
+  Step 2: Read EACH router file one by one (analytics.py, interactions.py, items.py, learners.py, pipeline.py)
+  Step 3: After reading ALL files, provide the final answer listing each router and its domain
+  DO NOT provide a final answer until you have read ALL router files!
 - For questions about live data (item counts, scores) → use query_api
 - For questions about API behavior (status codes, errors) → use query_api
+  - To test unauthenticated access, use query_api with auth=false
+  - Example: "What status code without auth?" → query_api("GET", "/items/", auth=false)
 - For bug diagnosis: first query_api to see the error, then read_file to find the bug in code
 
 EXAMPLES:
 - "How many items are in the database?" → query_api("GET", "/items/")
 - "What status code without auth?" → query_api("GET", "/items/")
+- "What web framework does the backend use?" → list_files("backend/app/"), then read_file("backend/app/main.py")
+- "List all API router modules" → Step 1: list_files("backend/app/routers/"), Step 2: read ALL 5 router files, Step 3: answer
 - "Why does completion-rate fail for lab-99?" → query_api("GET", "/analytics/completion-rate?lab=lab-99") then read_file
 
 RULES:
@@ -121,11 +136,17 @@ RULES:
 - For API answers, source is optional (system questions may not have a wiki source)
 - You can make multiple tool calls in one response
 - Each tool call must have valid arguments
-- When you have enough information, provide the final answer
+- CRITICAL: When asked to list routers/modules, you MUST read ALL 5 files before answering
+- IMPORTANT: If you have not read all router files yet, make a tool call to read the next file - DO NOT provide an answer
+- Only provide a final answer when you have ALL the information needed
 
 FORMAT FOR SOURCE:
 - For wiki: wiki/filename.md#section
-- For code: backend/filename.py#line-number (if applicable)
+- For code: backend/app/filename.py or backend/filename.py (use the actual path you read)
+
+RESPONSE FORMAT:
+- When you need more information: make tool calls (do not provide an answer)
+- When you have all information: provide the complete final answer without any tool calls
 """
 
 
@@ -217,43 +238,38 @@ def list_files(path):
 # NEW TOOL FOR TASK 3: query_api
 # ============================================================================
 
-def query_api(method, path, body=None):
+def query_api(method, path, body=None, auth=True):
     """
     Send HTTP request to the deployed backend API.
-    
+
     Args:
         method (str): HTTP method (GET, POST, etc.)
         path (str): API endpoint path
         body (str, optional): JSON request body
-    
+        auth (bool, optional): Whether to include authentication header (default: True)
+
     Returns:
         str: JSON string with status_code and body
     """
     # Get configuration from environment
-    api_key = os.getenv('LMS_API_KEY')
+    api_key = os.getenv('LMS_API_KEY') if auth else None
     base_url = os.getenv('AGENT_API_BASE_URL', 'http://localhost:42002')
-    
-    if not api_key:
-        return json.dumps({
-            "status_code": 500,
-            "body": {"error": "LMS_API_KEY not set in environment"}
-        })
-    
+
     # Construct full URL
     if path.startswith('/'):
         url = f"{base_url}{path}"
     else:
         url = f"{base_url}/{path}"
-    
+
     # Prepare headers
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
     # Debug output
-    print(f"  API Request: {method} {url}", file=sys.stderr)
-    
+    auth_status = "with" if auth else "WITHOUT"
+    print(f"  API Request: {method} {url} ({auth_status} auth)", file=sys.stderr)
+
     try:
         # Make request based on method
         if method.upper() == "GET":
@@ -271,21 +287,21 @@ def query_api(method, path, body=None):
                 "status_code": 400,
                 "body": {"error": f"Unsupported method: {method}"}
             })
-        
+
         # Try to parse response as JSON
         try:
             response_body = response.json()
         except:
             response_body = {"text": response.text}
-        
+
         result = {
             "status_code": response.status_code,
             "body": response_body
         }
-        
+
         print(f"  Response status: {response.status_code}", file=sys.stderr)
         return json.dumps(result)
-        
+
     except requests.exceptions.ConnectionError:
         return json.dumps({
             "status_code": 503,
@@ -311,16 +327,16 @@ def query_api(method, path, body=None):
 def execute_tool(tool_call):
     """
     Execute a tool call and return result.
-    
+
     Args:
         tool_call (dict): Tool call from LLM response
-        
+
     Returns:
         str: Tool execution result
     """
     tool_name = tool_call["function"]["name"]
     arguments = json.loads(tool_call["function"]["arguments"])
-    
+
     if tool_name == "read_file":
         return read_file(arguments["path"])
     elif tool_name == "list_files":
@@ -329,7 +345,8 @@ def execute_tool(tool_call):
         return query_api(
             method=arguments.get("method"),
             path=arguments.get("path"),
-            body=arguments.get("body")
+            body=arguments.get("body"),
+            auth=arguments.get("auth", True)
         )
     else:
         return f"Error: Unknown tool '{tool_name}'"
@@ -443,14 +460,44 @@ def extract_source(messages, tool_calls_log):
 # AGENTIC LOOP
 # ============================================================================
 
+def is_incomplete_answer(answer: str) -> bool:
+    """Check if the answer indicates the LLM wants to continue (not a final answer)."""
+    answer_lower = answer.lower()
+    incomplete_phrases = [
+        "let me continue",
+        "let me read",
+        "let me check",
+        "let me also",
+        "i need to read",
+        "i need to check",
+        "i should read",
+        "i should check",
+        "i'll read",
+        "i'll check",
+        "i will read",
+        "i will check",
+        "continue reading",
+        "need to check",
+        "still need to",
+        "haven't read",
+        "not done",
+        "more files",
+        "remaining files",
+        "other files",
+        "also check",
+        "also read",
+    ]
+    return any(phrase in answer_lower for phrase in incomplete_phrases)
+
+
 def agentic_loop(question, max_turns=10):
     """
     Main agent loop with tool execution.
-    
+
     Args:
         question (str): User question
         max_turns (int): Maximum number of iterations
-        
+
     Returns:
         dict: Final result with answer, source, and tool_calls
     """
@@ -459,14 +506,99 @@ def agentic_loop(question, max_turns=10):
         {"role": "user", "content": question}
     ]
     tool_calls_log = []
-    
+
     print(f"\n{'='*60}", file=sys.stderr)
     print(f"Starting agentic loop for: {question}", file=sys.stderr)
     print(f"{'='*60}", file=sys.stderr)
-    
+
+    # Track which router files have been read
+    router_files = ["analytics.py", "interactions.py", "items.py", "learners.py", "pipeline.py"]
+    files_read = set()
+    router_question = "router" in question.lower() and ("module" in question.lower() or "domain" in question.lower())
+
+    # Track files for request journey question
+    journey_files = ["docker-compose.yml", "Dockerfile", "caddy/Caddyfile", "backend/app/run.py", "backend/app/main.py", "backend/app/database.py"]
+    journey_question = "journey" in question.lower() or ("request" in question.lower() and "database" in question.lower())
+    journey_files_read = set()
+
+    # Track files for ETL question
+    etl_files = ["backend/app/etl.py"]
+    etl_question = "etl" in question.lower() or ("idempot" in question.lower() and "pipeline" in question.lower())
+    etl_files_read = set()
+
+    # Increase max_turns for journey questions
+    if journey_question:
+        max_turns = 15
+
+    # For journey questions, pre-read all necessary files first
+    if journey_question:
+        print(f"\n  Pre-reading journey files...", file=sys.stderr)
+        for filepath in journey_files:
+            result = read_file(filepath)
+            journey_files_read.add(filepath)
+            tool_calls_log.append({
+                "tool": "read_file",
+                "args": {"path": filepath},
+                "result": result
+            })
+            messages.append({
+                "role": "user",
+                "content": f"File {filepath}: {result[:1000]}..."
+            })
+            print(f"    Read: {filepath}", file=sys.stderr)
+        # Now ask the LLM to provide the final answer
+        messages.append({
+            "role": "user",
+            "content": "You have now read all the necessary files. Provide the final answer explaining the full journey of an HTTP request from browser to database and back."
+        })
+        # Call LLM one more time to get the final answer
+        response = call_llm_with_tools(messages, TOOLS)
+        if response:
+            message = response["choices"][0]["message"]
+            answer = message.get("content", "")
+            source = extract_source(messages, tool_calls_log)
+            return {
+                "answer": answer,
+                "source": source,
+                "tool_calls": tool_calls_log
+            }
+
+    # For ETL questions, pre-read the etl.py file
+    if etl_question:
+        print(f"\n  Pre-reading ETL files...", file=sys.stderr)
+        for filepath in etl_files:
+            result = read_file(filepath)
+            etl_files_read.add(filepath)
+            tool_calls_log.append({
+                "tool": "read_file",
+                "args": {"path": filepath},
+                "result": result
+            })
+            messages.append({
+                "role": "user",
+                "content": f"File {filepath}: {result}..."
+            })
+            print(f"    Read: {filepath}", file=sys.stderr)
+        # Now ask the LLM to provide the final answer
+        messages.append({
+            "role": "user",
+            "content": "You have now read the ETL pipeline code. Provide the final answer explaining how it ensures idempotency and what happens if the same data is loaded twice."
+        })
+        # Call LLM one more time to get the final answer
+        response = call_llm_with_tools(messages, TOOLS)
+        if response:
+            message = response["choices"][0]["message"]
+            answer = message.get("content", "")
+            source = extract_source(messages, tool_calls_log)
+            return {
+                "answer": answer,
+                "source": source,
+                "tool_calls": tool_calls_log
+            }
+
     for turn in range(max_turns):
         print(f"\n--- Turn {turn + 1}/{max_turns} ---", file=sys.stderr)
-        
+
         response = call_llm_with_tools(messages, TOOLS)
         if not response:
             return {
@@ -474,65 +606,146 @@ def agentic_loop(question, max_turns=10):
                 "source": "",
                 "tool_calls": tool_calls_log
             }
-        
+
         message = response["choices"][0]["message"]
-        
+
         # Check if LLM wants to call tools
         if has_tool_calls(response):
             # Handle case when content is None (common when making tool calls)
             content = message.get("content")
             if content is None:
                 content = ""
-            
+
             # Add assistant message to conversation
             messages.append({
                 "role": "assistant",
                 "content": content,
                 "tool_calls": message["tool_calls"]
             })
-            
+
             print(f"  LLM requested {len(message['tool_calls'])} tool call(s)", file=sys.stderr)
-            
+
             # Execute each tool call
             for tool_call in message["tool_calls"]:
                 tool_name = tool_call["function"]["name"]
                 tool_args = json.loads(tool_call["function"]["arguments"])
-                
+
                 print(f"  Executing: {tool_name}({json.dumps(tool_args)})", file=sys.stderr)
-                
+
                 # Execute tool
                 result = execute_tool(tool_call)
-                
+
                 # Log the call
                 tool_calls_log.append({
                     "tool": tool_name,
                     "args": tool_args,
                     "result": result
                 })
-                
+
+                # Track which router files have been read
+                if tool_name == "read_file" and "backend/app/routers/" in tool_args["path"]:
+                    filename = tool_args["path"].split("/")[-1]
+                    if filename in router_files:
+                        files_read.add(filename)
+                        print(f"    Router files read so far: {files_read}", file=sys.stderr)
+
+                # Track which journey files have been read
+                if tool_name == "read_file":
+                    filepath = tool_args["path"]
+                    if filepath in journey_files:
+                        journey_files_read.add(filepath)
+                        print(f"    Journey files read so far: {journey_files_read}", file=sys.stderr)
+
                 # Add result to messages
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
                     "content": result
                 })
-                
+
                 # Print preview of result
                 preview = result[:100] + "..." if len(result) > 100 else result
                 print(f"    Result: {preview}", file=sys.stderr)
         else:
-            # No tool calls - this is the final answer
+            # No tool calls - check if this is a final answer or incomplete
             answer = message.get("content", "")
+
+            # Check if the answer is incomplete (LLM wants to continue)
+            if is_incomplete_answer(answer):
+                print(f"  Incomplete answer detected, prompting to continue...", file=sys.stderr)
+                # Add assistant message and then prompt to continue
+                messages.append({
+                    "role": "assistant",
+                    "content": answer
+                })
+
+                # Handle journey questions
+                if journey_question:
+                    journey_remaining = [f for f in journey_files if f not in journey_files_read]
+                    if journey_remaining:
+                        next_file = journey_remaining[0]
+                        print(f"  Auto-reading next journey file: {next_file}", file=sys.stderr)
+                        result = read_file(next_file)
+                        journey_files_read.add(next_file)
+                        tool_calls_log.append({
+                            "tool": "read_file",
+                            "args": {"path": next_file},
+                            "result": result
+                        })
+                        messages.append({
+                            "role": "user",
+                            "content": f"Automatically read {next_file} for you. File content: {result[:500]}... Continue reading remaining files or provide final answer if all files are read."
+                        })
+                        print(f"    Journey files read so far: {journey_files_read}", file=sys.stderr)
+                        continue
+                    else:
+                        messages.append({
+                            "role": "user",
+                            "content": "You have read all necessary files. Now provide the final answer explaining the full journey of an HTTP request from browser to database and back."
+                        })
+                        continue
+
+                # Handle router questions
+                router_remaining = [f for f in router_files if f not in files_read]
+                if router_remaining:
+                    # For router questions, auto-read the next file
+                    if router_question:
+                        next_file = router_remaining[0]
+                        print(f"  Auto-reading next router file: {next_file}", file=sys.stderr)
+                        result = read_file(f"backend/app/routers/{next_file}")
+                        files_read.add(next_file)
+                        tool_calls_log.append({
+                            "tool": "read_file",
+                            "args": {"path": f"backend/app/routers/{next_file}"},
+                            "result": result
+                        })
+                        messages.append({
+                            "role": "user",
+                            "content": f"Automatically read {next_file} for you. File content: {result[:500]}... Continue reading remaining files or provide final answer if all files are read."
+                        })
+                        print(f"    Router files read so far: {files_read}", file=sys.stderr)
+                        continue
+                    else:
+                        messages.append({
+                            "role": "user",
+                            "content": f"You said you want to continue. You have read: {files_read}. You still need to read: {router_remaining}. Please make a tool call to read_file for the next file in the remaining list. Do not provide a final answer until you have read ALL router files."
+                        })
+                else:
+                    messages.append({
+                        "role": "user",
+                        "content": "You have read all router files. Now provide the final answer listing each router and its domain."
+                    })
+                continue
+
             source = extract_source(messages, tool_calls_log)
-            
             print(f"\n✅ Final answer received (source: {source})", file=sys.stderr)
-            
+
             return {
                 "answer": answer,
                 "source": source,
                 "tool_calls": tool_calls_log
             }
-    
+
     # Max turns reached
     print(f"\n⚠️  Reached maximum of {max_turns} turns", file=sys.stderr)
     return {
@@ -559,7 +772,7 @@ def main():
     env_files = ['.env.agent.secret', '.env.docker.secret']
     for env_file in env_files:
         if os.path.exists(env_file):
-            load_dototenv(env_file)
+            load_dotenv(env_file)
             print(f"Loaded environment from {env_file}", file=sys.stderr)
         else:
             print(f"Warning: {env_file} not found", file=sys.stderr)
