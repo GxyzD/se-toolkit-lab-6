@@ -94,6 +94,58 @@ def test_agent_source_field():
     
     print("✅ Test passed: source field", file=sys.stderr)
 
+def test_agent_queries_api_for_data():
+    """Test that agent uses query_api for data questions"""
+    print("\n--- Running test: agent queries API for data ---", file=sys.stderr)
+    
+    result = run_agent("How many items are in the database?")
+    
+    assert result is not None, "Failed to run agent"
+    print(f"Return code: {result.returncode}", file=sys.stderr)
+    assert result.stdout, "STDOUT is empty"
+    
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        assert False, "Output is not valid JSON"
+    
+    # Check that query_api was called
+    tool_calls = output["tool_calls"]
+    query_api_calls = [t for t in tool_calls if t["tool"] == "query_api"]
+    assert len(query_api_calls) > 0, "query_api should be called for data questions"
+    
+    # Check that answer contains a number
+    answer = output.get("answer", "")
+    assert any(char.isdigit() for char in answer), "Answer should contain a number"
+    
+    print("✅ Test passed: agent queries API for data", file=sys.stderr)
+
+def test_agent_reads_code_for_framework():
+    """Test that agent reads source code for framework question"""
+    print("\n--- Running test: agent reads code for framework ---", file=sys.stderr)
+    
+    result = run_agent("What Python web framework does this project's backend use?")
+    
+    assert result is not None, "Failed to run agent"
+    print(f"Return code: {result.returncode}", file=sys.stderr)
+    assert result.stdout, "STDOUT is empty"
+    
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        assert False, "Output is not valid JSON"
+    
+    # Check that read_file was called
+    tool_calls = output["tool_calls"]
+    read_file_calls = [t for t in tool_calls if t["tool"] == "read_file"]
+    assert len(read_file_calls) > 0, "read_file should be called for code questions"
+    
+    # Check that answer contains FastAPI
+    answer = output.get("answer", "")
+    assert "FastAPI" in answer, "Answer should mention FastAPI"
+    
+    print("✅ Test passed: agent reads code for framework", file=sys.stderr)
+
 if __name__ == "__main__":
     print("Running Task 2 tests...", file=sys.stderr)
     
