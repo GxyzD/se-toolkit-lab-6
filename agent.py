@@ -180,7 +180,6 @@ def call_llm_with_tools(messages, tools=None):
     
     try:
         response = requests.post(
-            f"{api_base}/chat/completions",
             headers=headers,
             json=payload,
             timeout=60
@@ -310,5 +309,15 @@ def main():
     print(json.dumps(result, ensure_ascii=False))
     sys.stdout.flush()  # Force flush for Windows
 
-if __name__ == "__main__":
-    main()
+    # Тело запроса с вопросом пользователя
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": question}
+        ],
+        "temperature": 0.7
+    }
+    
+    # Отправляем запросss
+    try:
+        # Формируем полный адрес для запроса
