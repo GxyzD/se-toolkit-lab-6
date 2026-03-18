@@ -1,17 +1,41 @@
-# Agent for Task 1
+# Agent Documentation for Task 2
 
-## Описание
-Простой агент, который вызывает LLM для ответа на вопросы.
+## Overview
+This agent answers questions by reading documentation from the `wiki/` folder.
+It uses tools and an agentic loop to find information.
 
-## Используемая LLM
-- Провайдер: Qwen Code API
-- Модель: qwen3-coder-plus
-- Адрес API: http://10.93.26.116:12345/v1
+## Version
+- Version 2.0 (Task 2) - Added tools and agentic loop
+- Version 1.0 (Task 1) - Basic LLM calls
 
-## Как запустить
-1. Убедитесь, что файл `.env.agent.secret` настроен правильно
-2. Выполните: `uv run agent.py "Ваш вопрос"`
+## Tools
 
-## Пример
-```bash
-uv run agent.py "Что такое 2+2?"
+### read_file(path)
+Reads a file from the project.
+- **path**: relative path from project root
+- **Returns**: file contents or error message
+
+### list_files(path)
+Lists files in a directory.
+- **path**: relative directory path
+- **Returns**: newline-separated list (directories end with /)
+
+## Agentic Loop
+1. Send question + tool definitions to LLM
+2. If LLM calls tools → execute them, add results, repeat
+3. If LLM gives text answer → that's final
+4. Maximum 10 iterations
+
+## Output Format
+```json
+{
+  "answer": "The answer text",
+  "source": "wiki/filename.md#section",
+  "tool_calls": [
+    {
+      "tool": "read_file",
+      "args": {"path": "wiki/file.md"},
+      "result": "file contents..."
+    }
+  ]
+}
